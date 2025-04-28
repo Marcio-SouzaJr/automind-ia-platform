@@ -1,0 +1,142 @@
+// src/styles/main.scss
+
+// 1. Importar módulos Sass necessários
+@use "sass:color";
+
+// --- Customizações da Identidade Visual Automind IA (Variáveis Bootstrap) ---
+// !! MOVIDO PARA O TOPO !!
+
+// 2. Variáveis de Cor
+$primary:       #FF8000;
+$secondary:     #6c757d;
+$success:       #198754;
+$info:          #0dcaf0;
+$warning:       #ffc107;
+$danger:        #dc3545;
+$light:         #f8f9fa;
+$dark:          #2C2C2C;
+
+// Cores do Corpo e Texto
+$body-bg:       #000000;
+$body-color:    #FFFFFF;
+$headings-color:#FFFFFF;
+$link-color:    $primary;
+$link-hover-color: color.adjust($primary, $lightness: -10%);
+
+// 3. Variáveis de Tipografia
+$font-family-sans-serif: 'Roboto', system-ui, -apple-system, "Segoe UI", "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+$font-family-base: $font-family-sans-serif; // Agora definida ANTES de ser usada
+$headings-font-family: 'Montserrat', sans-serif;
+$headings-font-weight: 700;
+
+// 4. Variáveis de Estilo (Ex: Bordas, Cards)
+$border-radius: 0.375rem;
+$border-radius-sm: 0.25rem;
+$border-radius-lg: 0.5rem;
+$card-border-radius: $border-radius;
+$card-border-width: 0;
+$card-bg: $dark;
+
+// --- Fim das Variáveis ---
+
+
+// --- Reset e Configuração Base da Página ---html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: $font-family-base;
+  background-color: #000000; 
+  color: $body-color;
+  min-height: 100%;
+}
+
+#root {
+  min-height: 100%; // Manter isso é bom
+  width: 100%; // <--- ADICIONADO PARA GARANTIR LARGURA TOTAL
+  // display: flex; // REMOVIDO
+  // flex-direction: column; // REMOVIDO
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+// --- Fim do Reset ---
+
+
+// 5. **IMPORTANTE:** Importar o SCSS do Bootstrap DEPOIS das variáveis customizadas
+@import 'bootstrap/scss/bootstrap';
+
+
+// --- Seus Estilos Globais Customizados Adicionais ---
+h1, h2, h3, h4, h5, h6 {
+    font-family: $headings-font-family;
+    font-weight: $headings-font-weight;
+    color: $headings-color;
+}
+
+
+.logo-fade-edges {
+  // Gradiente radial como máscara: começa branco (opaco) no centro,
+  // começa a ficar transparente (preto) a 70% do raio,
+  // e é totalmente transparente (preto) a 100% do raio.
+  // Ajuste as porcentagens (ex: 60%, 95%) para controlar quão rápido/suave é o fade.
+  mask-image: radial-gradient(circle at center, white 70%, transparent 100%);
+  // Prefixo para compatibilidade com Webkit (Safari, Chrome antigos)
+  -webkit-mask-image: radial-gradient(circle at center, white 70%, transparent 100%);
+
+  // Garante que a máscara cubra toda a imagem
+  mask-size: contain; // ou 'cover' dependendo do efeito desejado
+  -webkit-mask-size: contain;
+}
+
+.card {
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+  &:hover {
+      transform: scale(1.02);
+      // ou box-shadow: 0 0 15px rgba($primary, 0.5); // Brilho laranja
+  }
+}
+
+.form-control-dark {
+  // Estilo base para o input no tema escuro
+  background-color: #404040; // Fundo cinza escuro
+  color: #fff;              // Texto branco
+  border: 1px solid #555;  // Borda cinza sutil
+
+  // Estilo do placeholder
+  &::placeholder {
+     color: #a0a0a0; // Placeholder cinza claro
+     opacity: 1;     // Garante visibilidade (Bootstrap pode reduzir opacidade)
+   }
+
+  // Estilo QUANDO o input está em foco
+  &:focus {
+     background-color: #404040; // Manter fundo
+     color: #fff;              // Manter cor do texto
+     border-color: $primary;    // *** Borda fica Laranja ***
+     outline: 0;                // Remover outline padrão do navegador
+     // Adiciona uma sombra externa sutil na cor primária
+     box-shadow: 0 0 0 0.25rem rgba($primary, 0.25);
+  }
+
+  // Remover brilho padrão do Chrome em campos autofill (opcional)
+  &:-webkit-autofill,
+  &:-webkit-autofill:hover,
+  &:-webkit-autofill:focus,
+  &:-webkit-autofill:active {
+      -webkit-text-fill-color: #fff; // Força cor do texto
+      -webkit-box-shadow: 0 0 0 30px #404040 inset !important; // Força cor de fundo
+      box-shadow: 0 0 0 30px #404040 inset !important;
+      // Pode precisar ajustar caret-color também se o cursor sumir
+      // caret-color: #fff;
+  }
+}
+
+
+// ... outros estilos globais ...
