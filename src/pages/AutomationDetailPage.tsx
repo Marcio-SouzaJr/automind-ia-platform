@@ -1,196 +1,220 @@
-// src/pages/AutomationDetailPage.tsx
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom'; // Hook para pegar params da URL e para navegar
+// src/pages/AutomationDetailPage.tsx (Versão do Cliente)
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import Container from 'react-bootstrap/Container';
 import Button from 'react-bootstrap/Button';
-import Spinner from 'react-bootstrap/Spinner'; // Indicador de carregamento
-import Alert from 'react-bootstrap/Alert'; // Para exibir erros ou mensagens
-import Card from 'react-bootstrap/Card'; // Para organizar o conteúdo
-import Badge from 'react-bootstrap/Badge'; // Para exibir status (habilitada/desabilitada)
+import Spinner from 'react-bootstrap/Spinner';
+import Alert from 'react-bootstrap/Alert';
+import Card from 'react-bootstrap/Card';
+import Badge from 'react-bootstrap/Badge';
+import Form from 'react-bootstrap/Form';           // Para o input de arquivo
+import ProgressBar from 'react-bootstrap/ProgressBar'; // Para progresso
 
-// Hook de autenticação para obter dados do usuário e companyId
 import { useAuth } from '../contexts/AuthContext';
-// Função do serviço Firestore para buscar detalhes combinados e a interface do resultado
+// Importar função e interfaces necessárias
 import { getCompanyAutomationDetails, CombinedAutomationDetails } from '../services/firestoreService';
-import { Col, Row } from 'react-bootstrap';
+
+// Imports do Firebase Storage
+import { storage } from '../config/firebaseConfig'; // Instância do storage
+import { ref, uploadBytesResumable, getDownloadURL, UploadTaskSnapshot } from "firebase/storage"; // Funções e tipo
+
+// Cole a URL de TESTE do seu Webhook n8n aqui
+const N8N_WEBHOOK_URL_TEST = "https://automind-ia.app.n8n.cloud/webhook-test/bfdd0c40-0430-4bc7-9b2e-fae837564d1f";
+const N8N_WEBHOOK_URL = N8N_WEBHOOK_URL_TEST; // Usar a de teste por enquanto
 
 const AutomationDetailPage: React.FC = () => {
-    // Pegar o ID da instância da automação da URL (ex: "automacao_exemplo_1")
     const { automationInstanceId } = useParams<{ automationInstanceId: string }>();
-    const navigate = useNavigate(); // Hook para navegação programática (ex: botão voltar)
-    const { dbUser } = useAuth(); // Obter dados do usuário logado (inclui companyId)
+    const navigate = useNavigate();
+    const { currentUser, dbUser } = useAuth(); // Obter usuário Auth e dados Firestore
 
-    // Estado para armazenar os detalhes combinados (instância + template)
+    // Estados da página
     const [details, setDetails] = useState<CombinedAutomationDetails | null>(null);
-    // Estado para controlar o indicador de carregamento
     const [loading, setLoading] = useState<boolean>(true);
-    // Estado para armazenar mensagens de erro
     const [error, setError] = useState<string | null>(null);
 
-    // Efeito para buscar os dados quando o componente é montado
-    // ou quando o ID da instância ou o usuário/empresa mudam
+    // Estados para Upload
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [isUploading, setIsUploading] = useState<boolean>(false);
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+    const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null); // Ref para limpar input
+
+    // Estados para Ação n8n
+    const [isStarting, setIsStarting] = useState<boolean>(false); // Loading do acionamento n8n
+    const [startError, setStartError] = useState<string | null>(null); // Erro ao acionar n8n
+    const [startSuccess, setStartSuccess] = useState<string | null>(null); // Sucesso ao acionar n8n
+
+    // Efeito para buscar detalhes da automação ao montar/mudar ID
     useEffect(() => {
-        // Define uma função async interna para poder usar await
         const fetchDetails = async () => {
-            setLoading(true); // Mostra o spinner
-            setError(null);   // Limpa erros anteriores
-            setDetails(null); // Limpa detalhes antigos antes da nova busca
-
-            // Verifica se temos os IDs necessários antes de prosseguir
             if (!automationInstanceId || !dbUser?.companyId) {
-                setError("Não foi possível obter o ID da automação ou da empresa.");
-                console.error("Erro: automationInstanceId ou dbUser.companyId estão faltando.", { automationInstanceId, dbUser });
-                setLoading(false);
-                return; // Sai da função se os IDs não estiverem disponíveis
+                setError("Informações necessárias não encontradas.");
+                setLoading(false); return;
             }
-
-            console.log(`Página Detalhes: Buscando dados combinados para inst: ${automationInstanceId}, comp: ${dbUser.companyId}`);
+            setLoading(true); setError(null); setDetails(null);
             try {
-                // Chama a função do serviço para buscar os dados
                 const fetchedDetails = await getCompanyAutomationDetails(dbUser.companyId, automationInstanceId);
-
-                // Verifica se os detalhes foram encontrados
-                if (fetchedDetails) {
-                    setDetails(fetchedDetails); // Atualiza o estado com os dados encontrados
-                    console.log("Detalhes carregados:", fetchedDetails);
-                } else {
-                    // Se o serviço retornou null (instância ou template não encontrados)
-                    setError(`Não foi possível carregar os detalhes para a automação "${automationInstanceId}". Verifique se ela está corretamente configurada para sua empresa.`);
-                }
-            } catch (err) {
-                // Captura qualquer erro inesperado durante a busca
-                console.error("Erro na página de detalhes ao buscar dados:", err);
-                setError("Ocorreu um erro inesperado ao buscar os detalhes da automação.");
-            } finally {
-                // Independentemente de sucesso ou falha, para de carregar
-                setLoading(false);
-            }
+                if (fetchedDetails) setDetails(fetchedDetails);
+                else setError(`Detalhes não encontrados (${automationInstanceId}).`);
+            } catch (err) { setError("Erro ao carregar detalhes."); }
+            finally { setLoading(false); }
         };
+        fetchDetails();
+        // TODO: Adicionar listener onSnapshot aqui para atualizações em tempo real (status, resultFileUrl)
+        // const unsubscribe = onSnapshot(doc(db, 'companies', dbUser.companyId, 'company_automations', automationInstanceId), (doc) => { ... });
+        // return () => unsubscribe(); // Limpar listener ao desmontar
+    }, [automationInstanceId, dbUser]);
 
-        fetchDetails(); // Executa a função de busca
+    // --- Funções de Upload ---
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (event.target.files && event.target.files[0]) {
+            setSelectedFile(event.target.files[0]);
+            setUploadError(null); setUploadedFileUrl(null); setStartSuccess(null); setStartError(null); // Limpa estados
+        } else { setSelectedFile(null); }
+    };
 
-    }, [automationInstanceId, dbUser]); // Dependências: re-executa se o ID na URL ou o usuário mudar
+    const handleUpload = () => {
+        if (!selectedFile || !currentUser || !dbUser?.companyId || !details) {
+            setUploadError("Selecione um arquivo PDF e garanta que os detalhes da automação foram carregados."); return;
+        }
+        if (selectedFile.type !== "application/pdf") { setUploadError("Selecione um arquivo PDF."); return; }
 
-    // Função placeholder para o botão "Iniciar"
-    const handleStartAutomation = () => {
-         // Usar o nome do template se disponível, senão o ID da instância
-         const automationName = details?.template?.name || automationInstanceId;
-         alert(`Iniciar automação: ${automationName} (simulação)`);
-         // TODO: Implementar a lógica real para iniciar a automação (ex: chamada a Cloud Function)
+        setIsUploading(true); setUploadProgress(0); setUploadError(null); setUploadedFileUrl(null);
+        setStartSuccess(null); setStartError(null); // Limpa feedback n8n
+
+        const timestamp = Date.now();
+        // Caminho: uploads/userId/companyId/instanceId-timestamp-nomeoriginal.pdf
+        const storagePath = `uploads/${currentUser.uid}/${dbUser.companyId}/${details.instance.id}-${timestamp}-${selectedFile.name}`;
+        const storageRef = ref(storage, storagePath);
+        const uploadTask = uploadBytesResumable(storageRef, selectedFile);
+
+        uploadTask.on('state_changed',
+            (snapshot: UploadTaskSnapshot) => { // Tipagem do snapshot
+                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                setUploadProgress(progress);
+            },
+            (error) => { // Tratar erros
+                console.error("Erro no upload:", error);
+                let message = "Falha no upload.";
+                if (error.code === 'storage/unauthorized') message = "Permissão negada.";
+                else if (error.code === 'storage/canceled') message = "Upload cancelado.";
+                setUploadError(message);
+                setIsUploading(false); setUploadProgress(null);
+            },
+            () => { // Upload concluído
+                getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+                    setUploadedFileUrl(downloadURL);
+                    setIsUploading(false); setUploadProgress(100);
+                    if(fileInputRef.current) fileInputRef.current.value = ""; // Limpa input
+                    setSelectedFile(null);
+                    // Chama a função para acionar o n8n
+                    triggerN8nWorkflow(downloadURL);
+                }).catch(urlError => {
+                    console.error("Erro ao obter URL:", urlError);
+                    setUploadError("Upload ok, mas falha ao obter URL.");
+                    setIsUploading(false); setUploadProgress(null);
+                });
+            }
+        );
+    };
+    // --- Fim Funções Upload ---
+
+    // --- Função Acionar n8n ---
+    const triggerN8nWorkflow = async (pdfFileUrl: string) => {
+        if (!details || !dbUser?.companyId || !currentUser?.uid || !N8N_WEBHOOK_URL || N8N_WEBHOOK_URL.startsWith("COLE_SUA")) {
+             setStartError("Erro interno: Configuração ou dados do usuário/automação incompletos para iniciar.");
+             return;
+        }
+        setIsStarting(true); setStartError(null); setStartSuccess(null);
+        const payload = {
+            triggeringUserId: currentUser.uid,
+            companyId: dbUser.companyId,
+            instanceId: details.instance.id,
+            automationId: details.instance.automationId,
+            config: details.instance.config,
+            pdfUrl: pdfFileUrl // Envia a URL do PDF
+        };
+        console.log("Enviando para n8n:", N8N_WEBHOOK_URL, payload);
+        try {
+            const response = await fetch(N8N_WEBHOOK_URL, {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                let errorBody = await response.text(); // Pega texto para mais detalhes
+                console.error("Erro n8n:", response.status, response.statusText, errorBody);
+                throw new Error(`Falha ao acionar (Status ${response.status}).`);
+            }
+            const responseData = await response.json();
+            console.log("Resposta n8n:", responseData);
+            setStartSuccess("Processamento da automação solicitado com sucesso!");
+            // TODO: Atualizar status inicial no Firestore para "processing" ou "queued"
+        } catch (error: any) { setStartError(error.message || "Erro ao contatar serviço."); }
+        finally { setIsStarting(false); }
     };
 
     // --- Renderização ---
+    if (loading) return <Container className="text-center mt-5"><Spinner /></Container>;
+    if (error) return <Container className="mt-4"><Alert variant="danger">{error}</Alert><Button onClick={()=>navigate(-1)}>Voltar</Button></Container>;
+    if (!details) return <Container className="mt-4"><Alert variant="warning">Detalhes não encontrados.</Alert><Button onClick={()=>navigate(-1)}>Voltar</Button></Container>;
 
-    // 1. Renderiza um spinner enquanto os dados estão sendo buscados
-    if (loading) {
-        return (
-            <Container className="text-center mt-5">
-                <Spinner animation="border" variant="primary" />
-                <p className="mt-2">Carregando detalhes da automação...</p>
-            </Container>
-        );
-    }
-
-    // 2. Renderiza uma mensagem de erro se algo deu errado
-    if (error) {
-         return (
-             <Container className="mt-4">
-                 <Alert variant="danger">
-                     <h4>Erro ao Carregar</h4>
-                     <p>{error}</p>
-                 </Alert>
-                 <Button variant="secondary" onClick={() => navigate('/automations')}>
-                     ← Voltar para Automações
-                 </Button>
-             </Container>
-         );
-    }
-
-    // 3. Renderiza uma mensagem se os detalhes não foram encontrados (mesmo sem erro explícito)
-    if (!details) {
-         return (
-             <Container className="mt-4">
-                 <Alert variant="warning">
-                     Detalhes da automação não encontrados.
-                 </Alert>
-                  <Button variant="outline-secondary" size="sm" onClick={() => navigate('/automations')}>
-                     ← Voltar para Automações
-                 </Button>
-             </Container>
-         );
-    }
-
-    // 4. Renderiza o conteúdo principal com os detalhes da automação encontrados
     return (
         <Container>
-             {/* Botão para voltar à lista */}
-             <Button variant="outline-secondary" size="sm" onClick={() => navigate('/automations')} className="mb-3">
-                 ← Voltar para Automações
-             </Button>
+             <Button variant="outline-secondary" size="sm" onClick={() => navigate('/automations')} className="mb-3">← Voltar</Button>
 
-            {/* Card principal com os detalhes */}
-            <Card bg="dark" text="white" border="secondary"> {/* Aplicando tema escuro diretamente */}
+            <Card>
                 <Card.Header>
                     <div className="d-flex justify-content-between align-items-center">
-                        {/* Nome da Automação (do template) */}
                         <h2 className="h3 mb-0">{details.template.name}</h2>
-                        {/* Status Habilitada/Desabilitada (da instância) */}
-                        <Badge bg={details.instance.enabled ? "success" : "secondary"} pill>
+                        <Badge bg={details.instance.enabled ? "success" : "secondary"}>
                             {details.instance.enabled ? "Habilitada" : "Desabilitada"}
                         </Badge>
                      </div>
-                     {/* ID da Instância (para referência) */}
-                     <small className="text-muted">ID da Instância: {details.instance.id}</small>
+                     <small className="text-muted">Automação: {details.template.id} / Instância: {details.instance.id}</small>
                 </Card.Header>
                 <Card.Body>
-                    {/* Descrição da Automação (do template) */}
-                    <Card.Text className="mb-4">{details.template.description}</Card.Text>
+                    <p>{details.template.description}</p>
+                    <p><strong>Status Atual:</strong> {details.instance.status || 'Indefinido'}</p>
+                    {details.instance.lastRun && <p><small><strong>Última Execução:</strong> {details.instance.lastRun.toDate().toLocaleString()}</small></p>}
 
-                    <Row>
-                        <Col md={6}>
-                            <h5 className="mt-2">Status Atual</h5>
-                            <p>{details.instance.status || 'Não definido'}</p>
-                        </Col>
-                        <Col md={6}>
-                            <h5 className="mt-2">Última Execução</h5>
-                             {details.instance.lastRun ? (
-                                 <p>{details.instance.lastRun.toDate().toLocaleString()}</p>
-                             ) : (
-                                 <p><small className="text-muted">Nunca executada</small></p>
-                             )}
-                        </Col>
-                    </Row>
+                    <hr className="my-4" />
 
-                    <h5 className="mt-4">Configuração Específica da Empresa</h5>
-                     {/* Exibe a configuração como JSON formatado. */}
-                     {/* ATENÇÃO: Revise se há dados sensíveis antes de exibir em produção. */}
-                     {/* Idealmente, mostre campos específicos em um formulário (desabilitado por enquanto). */}
-                     <pre style={{
-                         backgroundColor: '#1a1a1a',
-                         padding: '1rem',
-                         borderRadius: '0.25rem',
-                         color: '#e9ecef', // Cor de texto clara para contraste
-                         maxHeight: '250px',
-                         overflowY: 'auto',
-                         whiteSpace: 'pre-wrap', // Quebra linha no JSON
-                         wordBreak: 'break-all' // Quebra palavras longas
-                         }}>
-                        <code>{JSON.stringify(details.instance.config, null, 2)}</code>
-                     </pre>
-                     <p className="text-muted"><small><em>(Edição de configuração será implementada futuramente)</em></small></p>
+                    {/* Formulário de Upload */}
+                    <h4>Iniciar Automação (Enviar PDF)</h4>
+                    <Form.Group controlId="formFile" className="mb-3">
+                        <Form.Label>Selecione o arquivo PDF:</Form.Label>
+                        <Form.Control
+                            type="file" accept="application/pdf" onChange={handleFileChange}
+                            disabled={isUploading || isStarting || !details.instance.enabled} ref={fileInputRef}
+                         />
+                    </Form.Group>
+                    {isUploading && uploadProgress !== null && ( <ProgressBar animated now={uploadProgress} label={`${uploadProgress}%`} className="mb-3" /> )}
+                    {uploadError && <Alert variant="danger" >{uploadError}</Alert>}
 
-                </Card.Body>
-                <Card.Footer className="text-end bg-dark" style={{borderColor: '#444'}}>
-                     {/* Botão para Iniciar a Automação */}
-                     <Button
-                        variant={details.instance.enabled ? "success" : "secondary"} // Verde se habilitada
-                        size="lg"
-                        onClick={handleStartAutomation}
-                        disabled={!details.instance.enabled} // Desabilita se não estiver habilitada
-                       >
-                         {details.instance.enabled ? 'Iniciar Automação' : 'Automação Desabilitada'}
+                     <Button variant="primary" onClick={handleUpload} disabled={!selectedFile || isUploading || isStarting || !details.instance.enabled}>
+                         {isUploading ? <><Spinner as="span" size="sm" /> Enviando...</> : 'Enviar PDF e Iniciar'}
                      </Button>
-                </Card.Footer>
+
+                    {/* Feedback da chamada n8n */}
+                    {startSuccess && <Alert variant="success" onClose={() => setStartSuccess(null)} dismissible className="mt-3">{startSuccess}</Alert>}
+                    {startError && <Alert variant="danger" onClose={() => setStartError(null)} dismissible className="mt-3">{startError}</Alert>}
+
+                     {/* Área de Resultado */}
+                     <div className="mt-4">
+                         <h5>Resultado</h5>
+                          {/* TODO: Adicionar listener onSnapshot e exibir link de download */}
+                         <p className="text-muted">Aguardando processamento...</p>
+                         {/* Exemplo com dados do estado 'details' (precisa do listener):
+                         {details.instance.status === 'completed' && details.instance.resultFileUrl && (
+                             <Button variant="success" href={details.instance.resultFileUrl} target="_blank">
+                                 Baixar Planilha XLSX
+                             </Button>
+                         )}
+                         {details.instance.status === 'processing' && <Spinner size="sm"/> }
+                         {details.instance.status === 'error' && <Alert variant="danger" size="sm">Erro no processamento.</Alert> }
+                         */}
+                     </div>
+                </Card.Body>
             </Card>
         </Container>
     );

@@ -3,7 +3,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import Nav from 'react-bootstrap/Nav';
 import Button from 'react-bootstrap/Button';
-import { BsHouseDoorFill, BsCpuFill, BsPower } from 'react-icons/bs';
+import { BsHouseDoorFill, BsCpuFill, BsPower, BsPeopleFill, BsGrid1X2Fill } from 'react-icons/bs';
 import { useAuth } from '../contexts/AuthContext'; // Importar o contexto de autenticação
 
 // --- ESTILOS ---
@@ -56,7 +56,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ closeMenu }) => {
-    const { currentUser, logOut } = useAuth();
+    const { currentUser, logOut, dbUser } = useAuth();
     const [isLogoutHovered, setIsLogoutHovered] = React.useState(false);
 
     // Função de estilo para NavLink (usa estilos específicos)
@@ -100,6 +100,24 @@ const Sidebar: React.FC<SidebarProps> = ({ closeMenu }) => {
                         {/* ... outros links ... */}
                     </>
                  )}
+                  {currentUser && dbUser?.role === 'admin' && (
+                    <>
+                        {/* Separador Visual */}
+                        <hr style={{borderColor: '#555', margin: '1rem 0'}} />
+                        <small className="text-muted px-3 mb-2 text-uppercase">Administração</small>
+
+                        {/* Link para Gerenciar Clientes */}
+                        <NavLink to="/admin/clients" style={getNavLinkStyle} onClick={handleNavLinkClick}>
+                            <BsPeopleFill size={20} style={{ marginRight: '10px' }} /> Clientes
+                        </NavLink>
+
+                        {/* Link para Gerenciar Automações (Templates) */}
+                        <NavLink to="/admin/automations/manage" style={getNavLinkStyle} onClick={handleNavLinkClick}>
+                             <BsGrid1X2Fill size={20} style={{ marginRight: '10px' }} /> Gerenciar Automações
+                        </NavLink>
+                        {/* Adicione mais links de admin aqui (ex: Logs, Configurações Globais) */}
+                    </>
+                )}
             </Nav>
 
             {/* Área inferior (Logout) */}

@@ -16,6 +16,10 @@ import NotFoundPage from "./pages/NotFoundPage";
 // Componente de Proteção
 import ProtectedRoute from './components/ProtectedRoute'; // 1. Importar
 import AutomationDetailPage from "./pages/AutomationDetailPage";
+import AdminProtectedRoute from "./components/AdminProtectedRoute";
+import AdminClientsPage from "./pages/admin/AdminClientsPage";
+import AdminManageAutomationsPage from "./pages/admin/AdminManageAutomationsPage";
+import AdminClientDetailPage from './pages/admin/AdminClientDetailPage';
 
 function App() {
   return (
@@ -38,6 +42,16 @@ function App() {
             <Route path="/automations" element={<AutomationsPage />} />
             <Route path="/automations/:automationInstanceId" element={<AutomationDetailPage />} />
             {/* Adicione outras rotas protegidas aqui */}
+        </Route>
+      </Route>
+      <Route element={<AdminProtectedRoute />}> {/* Protege o grupo */}
+         <Route element={<AppLayout />}> {/* Usa o mesmo layout */}
+             {/* Note que rotas de admin podem REUTILIZAR o path base se fizer sentido */}
+             {/* ou ter um prefixo /admin/ */}
+            <Route path="/admin/clients" element={<AdminClientsPage />} />
+            <Route path="/admin/clients/:companyId" element={<AdminClientDetailPage />} />
+            <Route path="/admin/automations/manage" element={<AdminManageAutomationsPage />} />
+             {/* Adicione outras rotas de admin aqui */}
         </Route>
       </Route>
 

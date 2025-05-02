@@ -3,7 +3,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-// import { getStorage } from "firebase/storage"; // Descomente se/quando usar Storage
+import { getStorage } from "firebase/storage"; // Descomente se/quando usar Storage
 // import { getFunctions } from "firebase/functions"; // Descomente se/quando usar Functions
 
 // Objeto de configuração lendo as variáveis de ambiente do Vite
@@ -28,8 +28,8 @@ const app = initializeApp(firebaseConfig);
 // Initialize Firebase services that you need
 const auth = getAuth(app);
 const db = getFirestore(app);
-// const storage = getStorage(app);
+const storage = getStorage(app);
 // const functions = getFunctions(app);
 
 // Export as instâncias dos serviços para usar em outras partes da aplicação
-export { app, auth, db /*, storage, functions */ };
+export { app, auth, db , storage };
