@@ -20,6 +20,8 @@ import AdminProtectedRoute from "./components/AdminProtectedRoute";
 import AdminClientsPage from "./pages/admin/AdminClientsPage";
 import AdminManageAutomationsPage from "./pages/admin/AdminManageAutomationsPage";
 import AdminClientDetailPage from './pages/admin/AdminClientDetailPage';
+import ManageClientsPage from "./pages/ManageClientsPage";
+
 
 function App() {
   return (
@@ -41,6 +43,7 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/automations" element={<AutomationsPage />} />
             <Route path="/automations/:automationInstanceId" element={<AutomationDetailPage />} />
+            <Route path="/clients/manage" element={<ManageClientsPage />} />
             {/* Adicione outras rotas protegidas aqui */}
         </Route>
       </Route>

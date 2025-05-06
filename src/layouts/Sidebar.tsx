@@ -3,7 +3,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import Nav from 'react-bootstrap/Nav';
 import Button from 'react-bootstrap/Button';
-import { BsHouseDoorFill, BsCpuFill, BsPower, BsPeopleFill, BsGrid1X2Fill } from 'react-icons/bs';
+import { BsHouseDoorFill, BsCpuFill, BsPower, BsPeopleFill, BsGrid1X2Fill, BsPersonLinesFill } from 'react-icons/bs';
 import { useAuth } from '../contexts/AuthContext'; // Importar o contexto de autenticação
 
 // --- ESTILOS ---
@@ -97,6 +97,9 @@ const Sidebar: React.FC<SidebarProps> = ({ closeMenu }) => {
                         <NavLink to="/automations" style={getNavLinkStyle} onClick={handleNavLinkClick}>
                             <BsCpuFill size={20} style={{ marginRight: '10px' }} /> Automações
                         </NavLink>
+                        <NavLink to="/clients/manage" style={getNavLinkStyle} onClick={handleNavLinkClick}>
+                            <BsPersonLinesFill size={20} style={{ marginRight: '10px' }} /> Gerenciar Clientes
+                        </NavLink>
                         {/* ... outros links ... */}
                     </>
                  )}
@@ -115,6 +118,7 @@ const Sidebar: React.FC<SidebarProps> = ({ closeMenu }) => {
                         <NavLink to="/admin/automations/manage" style={getNavLinkStyle} onClick={handleNavLinkClick}>
                              <BsGrid1X2Fill size={20} style={{ marginRight: '10px' }} /> Gerenciar Automações
                         </NavLink>
+                        
                         {/* Adicione mais links de admin aqui (ex: Logs, Configurações Globais) */}
                     </>
                 )}

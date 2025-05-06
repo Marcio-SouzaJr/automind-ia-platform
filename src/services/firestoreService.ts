@@ -15,8 +15,11 @@ import {
     serverTimestamp, // 🟢➡️ Importar serverTimestamp (melhor que Timestamp.now() para escritas)
     setDoc,
     updateDoc,
-    deleteDoc
+    deleteDoc,
+    FieldValue,
+    deleteField
 } from 'firebase/firestore';
+import { ClientRecipient } from '../pages/ManageClientsPage';
 
 // 1. Interface para representar os dados de um documento na subcoleção 'company_automations'
 //    Baseado na nossa modelagem anterior.
@@ -28,6 +31,10 @@ export interface CompanyAutomation {
     config: { [key: string]: any }; // Configuração específica da empresa (objeto genérico por enquanto)
     lastRun?: Timestamp;
     status?: string;
+    resultFileUrl?: string; // 🟢➡️ Adicionado (opcional)
+    errorMessage?: string; // 🟢➡️ Adicionado (opcional)
+    storagePath?: string; // 🟢➡️ Adicionado (opcional)
+    resultFileName?: string; // 🟢➡️ Adicionado (opcional)
     // Adicione outros campos se definidos na modelagem
 }
 
@@ -105,7 +112,7 @@ export const findCompanyByCode = async (code: string): Promise<{ id: string; dat
             // Retorna o ID do documento e os dados, tipando os dados
             return {
                 id: companyDoc.id,
-                data: companyDoc.data() as Omit<CompanyData, 'id'> 
+                data: companyDoc.data() as Omit<CompanyData, 'id'>
             };
         } else {
             // Nenhum documento encontrado com esse código
@@ -140,49 +147,73 @@ export const getCompanyAutomationDetails = async (
     instanceId: string // ID do documento na subcoleção company_automations
 ): Promise<CombinedAutomationDetails | null> => {
 
-    if (!companyId || !instanceId) return null;
+    // 👇 LOG 1: Início da função e parâmetros recebidos 👇
+    console.log(`[getCompanyAutomationDetails] Iniciando busca para companyId: ${companyId}, instanceId: ${instanceId}`);
 
-    console.log(`Firestore: Buscando detalhes da instância ${instanceId} para empresa ${companyId}`);
+    if (!companyId || !instanceId) {
+        console.error("[getCompanyAutomationDetails] Erro: IDs faltando.");
+        return null;
+    }
+
     try {
         // 1. Buscar o documento da instância na subcoleção
-        const instanceDocRef = doc(db, 'companies', companyId, 'company_automations', instanceId);
+        const instanceDocPath = `companies/${companyId}/company_automations/${instanceId}`;
+        const instanceDocRef = doc(db, instanceDocPath);
+        // 👇 LOG 2: Caminho que está sendo buscado para a instância 👇
+        console.log(`[getCompanyAutomationDetails] Buscando instância em: ${instanceDocRef.path}`);
         const instanceDocSnap = await getDoc(instanceDocRef);
 
+        // 👇 LOG 3: Resultado da busca da instância 👇
+        console.log(`[getCompanyAutomationDetails] Snapshot da instância existe? ${instanceDocSnap.exists()}`);
+
         if (!instanceDocSnap.exists()) {
-            console.error(`Instância de automação ${instanceId} não encontrada para a empresa ${companyId}`);
+            console.error(`[getCompanyAutomationDetails] Instância ${instanceId} não encontrada para ${companyId}.`);
             return null;
         }
 
-        // Extrair dados da instância, garantindo que 'automationId' (do template) está presente
+        // Extrair dados da instância
         const instanceData = { id: instanceDocSnap.id, ...instanceDocSnap.data() } as CompanyAutomation;
+        // 👇 LOG 4: Dados da instância encontrados 👇
+        console.log("[getCompanyAutomationDetails] Dados da instância:", instanceData);
+
+        // Garantir que temos o ID do template para buscar
         if (!instanceData.automationId) {
-             console.error(`Campo 'automationId' faltando na instância ${instanceId} da empresa ${companyId}`);
-             return null; // Não podemos buscar o template sem o ID dele
+            console.error(`[getCompanyAutomationDetails] Campo 'automationId' faltando na instância ${instanceId}.`);
+            return null;
         }
 
         // 2. Buscar o documento do template na coleção raiz 'automations'
-        const templateDocRef = doc(db, 'automations', instanceData.automationId);
+        const templateDocPath = `automations/${instanceData.automationId}`;
+        const templateDocRef = doc(db, templateDocPath);
+        // 👇 LOG 5: Caminho que está sendo buscado para o template 👇
+        console.log(`[getCompanyAutomationDetails] Buscando template em: ${templateDocRef.path}`);
         const templateDocSnap = await getDoc(templateDocRef);
 
+        // 👇 LOG 6: Resultado da busca do template 👇
+        console.log(`[getCompanyAutomationDetails] Snapshot do template existe? ${templateDocSnap.exists()}`);
+
         if (!templateDocSnap.exists()) {
-            console.error(`Template de automação ${instanceData.automationId} não encontrado.`);
-            // Poderia retornar só os dados da instância, ou null. Vamos retornar null por consistência.
-            return null;
+            console.error(`[getCompanyAutomationDetails] Template ${instanceData.automationId} não encontrado.`);
+            return null; // Ou poderia retornar só a instância? Decidimos retornar null antes.
         }
 
         // Extrair dados do template
         const templateData = { id: templateDocSnap.id, ...templateDocSnap.data() } as AutomationTemplate;
+        // 👇 LOG 7: Dados do template encontrados 👇
+        console.log("[getCompanyAutomationDetails] Dados do template:", templateData);
 
         // 3. Combinar e retornar os dados
-        console.log("Firestore: Detalhes combinados encontrados.");
+        // 👇 LOG 8: Retornando dados combinados 👇
+        console.log("[getCompanyAutomationDetails] Sucesso! Retornando detalhes combinados.");
         return {
             instance: instanceData,
             template: templateData
         };
 
     } catch (error) {
-        console.error(`Erro ao buscar detalhes combinados da automação ${instanceId}:`, error);
-        return null;
+        // 👇 LOG 9: Erro durante a execução 👇
+        console.error(`[getCompanyAutomationDetails] Erro ao buscar detalhes combinados (${instanceId}):`, error);
+        return null; // Retorna null em caso de erro
     }
 };
 
@@ -482,5 +513,117 @@ export const updateCompanyAutomationStatus = async (
     } catch (error) {
         console.error(`Erro ao ${statusText.toLowerCase()} automação ${instanceId}:`, error);
         throw new Error("Falha ao atualizar o status da automação.");
+    }
+};
+
+export const updateClientEnabledStatus = async (
+    companyId: string,
+    clientId: string,
+    newEnabledStatus: boolean
+): Promise<void> => {
+    if (!companyId || !clientId) {
+        throw new Error("ID da Empresa e ID do Cliente são obrigatórios.");
+    }
+    const statusText = newEnabledStatus ? "Habilitando" : "Desabilitando";
+    console.log(`Firestore Client: ${statusText} cliente ${clientId} para empresa ${companyId}`);
+    try {
+        // Referência ao documento específico do cliente na subcoleção
+        const clientDocRef = doc(db, 'companies', companyId, 'clients', clientId);
+
+        // Atualiza apenas o campo 'enabled'
+        await updateDoc(clientDocRef, {
+            enabled: newEnabledStatus
+            // Opcional: Adicionar um campo como 'statusLastChanged': serverTimestamp()
+        });
+
+        console.log(`Firestore Client: Status 'enabled' do cliente ${clientId} atualizado para ${newEnabledStatus}.`);
+
+    } catch (error) {
+        console.error(`Erro ao ${statusText.toLowerCase()} cliente ${clientId}:`, error);
+        throw new Error("Falha ao atualizar o status de habilitação do cliente.");
+    }
+};
+
+export type UpdateClientRecipientData = Omit<ClientRecipient, 'id' | 'createdAt' | 'lastWhatsappStatus' | 'lastEmailStatus' | 'lastStatusUpdate' | 'enabled'>;
+export const updateClientRecipient = async (
+    companyId: string,
+    clientId: string,
+    updateData: UpdateClientRecipientData // Apenas os campos que podem ser editados
+): Promise<void> => {
+    if (!companyId || !clientId) throw new Error("IDs são obrigatórios para atualizar cliente.");
+    if (!updateData || Object.keys(updateData).length === 0) {
+        console.warn("Nenhum dado fornecido para atualização do cliente.");
+        return;
+    }
+
+    console.log(`Firestore Client: Atualizando cliente ${clientId} da empresa ${companyId}...`, updateData);
+    try {
+        const clientDocRef = doc(db, 'companies', companyId, 'clients', clientId);
+
+        // updateDoc atualiza apenas os campos fornecidos em updateData
+        // Não precisamos incluir 'enabled' ou 'createdAt' aqui se não queremos que sejam editados por este form
+        await updateDoc(clientDocRef, {
+            name: updateData.name,
+            responsible: updateData.responsible || null, // Salva null se vazio
+            phone: updateData.phone,
+            email: updateData.email,
+            driveFileNameHint: updateData.driveFileNameHint || null // Salva null se vazio
+            // Poderia adicionar um campo 'updatedAt': serverTimestamp() aqui
+        });
+
+        console.log(`Firestore Client: Cliente ${clientId} atualizado com sucesso.`);
+
+    } catch (error) {
+        console.error(`Erro ao atualizar cliente ${clientId}:`, error);
+        throw new Error("Falha ao atualizar os dados do cliente.");
+    }
+};
+
+export const deleteClientRecipient = async (
+    companyId: string,
+    clientId: string
+): Promise<void> => {
+    if (!companyId || !clientId) {
+        throw new Error("ID da Empresa e ID do Cliente são obrigatórios para excluir.");
+    }
+    console.log(`Firestore Client: Excluindo cliente ${clientId} da empresa ${companyId}...`);
+    try {
+        // Referência ao documento específico do cliente na subcoleção
+        const clientDocRef = doc(db, 'companies', companyId, 'clients', clientId);
+
+        // Usar deleteDoc para remover o documento
+        await deleteDoc(clientDocRef);
+
+        console.log(`Firestore Client: Cliente ${clientId} excluído com sucesso.`);
+
+    } catch (error) {
+        console.error(`Erro ao excluir cliente ${clientId}:`, error);
+        throw new Error("Falha ao excluir o cliente do banco de dados.");
+    }
+};
+
+export const getCompanyAutomationInstance = async (
+    companyId: string,
+    instanceId: string // ID da instância (geralmente o mesmo ID do template)
+): Promise<CompanyAutomation | null> => {
+    if (!companyId || !instanceId) {
+        console.error("getCompanyAutomationInstance: IDs são obrigatórios.");
+        return null;
+    }
+    console.log(`Firestore: Buscando instância ${instanceId} para empresa ${companyId}`);
+    try {
+        const instanceDocRef = doc(db, 'companies', companyId, 'company_automations', instanceId);
+        const docSnap = await getDoc(instanceDocRef);
+
+        if (docSnap.exists()) {
+            console.log("Firestore: Instância encontrada:", docSnap.data());
+            return { id: docSnap.id, ...docSnap.data() } as CompanyAutomation;
+        } else {
+            console.warn(`Firestore: Instância ${instanceId} não encontrada para empresa ${companyId}.`);
+            return null;
+        }
+    } catch (error) {
+        console.error(`Erro ao buscar instância ${instanceId} para empresa ${companyId}:`, error);
+        return null;
     }
 };

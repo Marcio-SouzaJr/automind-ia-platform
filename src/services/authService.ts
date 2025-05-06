@@ -12,62 +12,66 @@ import {
     setDoc,
     Timestamp
 } from 'firebase/firestore';
-
+import { getFunctions, httpsCallable } from "firebase/functions";
 // Importar instâncias 'auth' e 'db' da configuração
-import { auth, db } from '../config/firebaseConfig';
+import { auth, db, app } from '../config/firebaseConfig';
 // Importar a função para buscar a empresa pelo código
-import { findCompanyByCode } from './firestoreService'; // Certifique-se que o caminho está correto
+const functions = getFunctions(app); // Passar a instância 'app'
 
 // --- Função de Cadastro (Signup) ---
 // Assinatura atualizada para aceitar companyCode
 export const signUp = async (email: string, password: string, companyCode: string): Promise<UserCredential> => {
 
+    if (!companyCode) throw new Error("Código da empresa é obrigatório."); // Validação inicial
+
     try {
-        // 1. Buscar a empresa PELO CÓDIGO ANTES de criar o usuário Auth
-        const company = await findCompanyByCode(companyCode);
+        // --- 👇 Chamar Cloud Function para Validar Código ANTES 👇 ---
+        console.log(`Chamando CF validateCompanyCode com código: ${companyCode}`);
+        const validateFn = httpsCallable(functions, 'validateCompanyCode');
+        let companyId = null;
 
-        // 2. Verificar se a empresa foi encontrada
-        if (!company) {
-             console.error(`Empresa não encontrada para o código: ${companyCode}`);
-             // Lança um erro específico que a UI pode tratar
-             throw new Error(`Código da empresa inválido ou não encontrado.`);
+        try {
+            const validationResult = await validateFn({ companyCode: companyCode.trim() });
+            // Extrai companyId do data retornado pela função
+            companyId = (validationResult.data as { success: boolean; companyId: string }).companyId;
+            if (!companyId) throw new Error("ID da empresa não retornado pela validação."); // Segurança extra
+            console.log(`Código validado. Company ID: ${companyId}`);
+        } catch (validationError: any) {
+            console.error("Erro da Cloud Function validateCompanyCode:", validationError);
+            // Tratar erros específicos da CF (ex: 'not-found' que definimos)
+            if (validationError.code === 'functions/not-found') {
+                throw new Error(`Código da empresa inválido ou não encontrado.`);
+            }
+            // Outros erros da CF
+            throw new Error(validationError.message || "Falha ao validar código da empresa.");
         }
-        // Log se a empresa for encontrada (opcional)
-        console.log(`Empresa encontrada para cadastro: ${company.id} (Nome: ${company.data.name})`);
+        // --- Fim da Chamada da Cloud Function ---
 
-        // 3. Se a empresa foi encontrada, prosseguir com a criação no Firebase Auth
+
+        // --- 5. Se a validação passou, prosseguir com Auth ---
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         console.log('✅ Usuário cadastrado no Auth:', user.uid);
 
-        // 4. Criar referência ao documento do usuário no Firestore (ID = UID do Auth)
+        // --- 6. Criar doc no Firestore com o companyId validado ---
         const userDocRef = doc(db, "users", user.uid);
-
-        // 5. Definir os dados para o documento do usuário
         const userData = {
-            email: user.email,                 // Email do Auth
-            // name: "Nome (a coletar)",       // Futuramente, pegar do formulário
-            companyId: company.id,             // USA O ID REAL DA EMPRESA ENCONTRADA
-            role: "member",                    // Papel padrão inicial
-            createdAt: Timestamp.now()         // Data de criação
+            email: user.email,
+            companyId: companyId, // <-- Usa o ID retornado pela CF
+            role: "member",
+            createdAt: Timestamp.now() // Usar Timestamp do cliente aqui é ok
         };
-
-        // 6. Escrever (criar) o documento no Firestore
         await setDoc(userDocRef, userData);
         console.log('📄 Documento do usuário criado no Firestore com ID:', user.uid);
 
-        // 7. Retornar as credenciais do Auth
+        // --- 7. Retornar credenciais ---
         return userCredential;
 
-    } catch (error) {
-        // Tratamento de erro agora pega erros do findCompanyByCode, Auth ou setDoc
-        const typedError = error as (AuthError | Error); // Tipar para acessar 'code' ou 'message'
-        console.error('❌ Erro no serviço de cadastro (signUp):', typedError);
-        if ((typedError as AuthError).code) { // Se tiver 'code', loga especificamente
-             console.error('   Código do erro Auth:', (typedError as AuthError).code);
-        }
-        // Relança o erro original para a UI tratar
-        throw typedError;
+    } catch (error: any) {
+        // Captura erros da validação (re-lançados) ou do createUserWithEmailAndPassword ou do setDoc
+        console.error('❌ Erro GERAL no serviço de cadastro (signUp):', error);
+        // Retorna a mensagem de erro já tratada (ou a original se for de outra fonte)
+        throw error;
     }
 };
 

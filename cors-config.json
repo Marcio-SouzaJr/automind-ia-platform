@@ -1,0 +1,13 @@
+[
+    {
+      "origin": [
+        "http://localhost:5173", 
+        "https://automind-ia-platform.web.app", 
+        "https://automind-ia-platform.firebaseapp.com" 
+
+      ],
+      "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], 
+      "responseHeader": ["Content-Type", "Authorization", "X-Requested-With", "X-Upload-Content-Length", "X-Upload-Content-Type"], 
+      "maxAgeSeconds": 3600 
+    }
+  ]
