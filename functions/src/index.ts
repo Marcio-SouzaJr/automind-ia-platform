@@ -11,46 +11,9 @@ const Timestamp = admin.firestore.Timestamp;
 const FieldValue = admin.firestore.FieldValue;
 
 // --- Interface para Payload da Função de Atualização (Existente) ---
-interface UpdateAutomationPayload {
-  companyId: string;
-  instanceId: string;
-  status: string;
-  lastRun?: string;
-  resultFileUrl?: string;
-  storagePath?: string;   // Adicionar se o n8n for salvar isso
-  resultFileName?: string;// Adicionar se o n8n for salvar isso
-  errorMessage?: string;
-}
 
-// --- Função 1: Atualizar Instância de Automação (Chamada pelo N8N) --- (Existente e Corrigida)
-export const updateAutomationInstance = onCall(async (request) => {
-  const data = request.data as UpdateAutomationPayload;
-  logger.info("Recebida requisição para updateAutomationInstance:", data);
 
-  if (!data.companyId || !data.instanceId || !data.status) {
-    throw new HttpsError("invalid-argument","companyId, instanceId e status são obrigatórios.");
-  }
 
-  try {
-    const instanceDocRef = db.collection("companies").doc(data.companyId)
-                             .collection("company_automations").doc(data.instanceId);
-
-    const updateData: { [key: string]: any } = { status: data.status };
-    if (data.lastRun) { try { updateData.lastRun = Timestamp.fromDate(new Date(data.lastRun)); } catch (e) { logger.warn("lastRun inválido");} }
-    if (data.resultFileUrl) { updateData.resultFileUrl = data.resultFileUrl; }
-    if (data.storagePath) { updateData.storagePath = data.storagePath; } // Salvar storagePath
-    if (data.resultFileName) { updateData.resultFileName = data.resultFileName; } // Salvar nome do arquivo
-    if (data.errorMessage) { updateData.errorMessage = data.errorMessage; }
-    else if (data.status !== 'error') { updateData.errorMessage = FieldValue.delete(); }
-
-    await instanceDocRef.update(updateData);
-    logger.info("Documento atualizado com sucesso!");
-    return { success: true, message: "Status atualizado." };
-  } catch (error: any) {
-    logger.error(`Erro ao atualizar Firestore (${data.companyId}/${data.instanceId}):`, error);
-    throw new HttpsError("internal", "Falha ao atualizar status.", error.message);
-  }
-});
 
 
 // --- Interface para Payload da Função de Validação de Código ---
@@ -121,3 +84,81 @@ export const markProcessing = onCall(async (request) => {
          throw new HttpsError("internal", "Falha ao atualizar status inicial.");
      }
  });
+
+ interface UpdatePayload {
+    companyId: string;
+    instanceId: string;      // ID da instância da automação (ex: 'envios-automaticos')
+    // Campos para atualizar a INSTÂNCIA GERAL (após todo o loop n8n)
+    instanceStatus?: 'completed' | 'error' | 'processing'; // Status geral da execução
+    instanceLastRun?: string;    // ISO String da data
+    instanceResultFileUrl?: string;
+    instanceStoragePath?: string;
+    instanceResultFileName?: string;
+    instanceErrorMessage?: string;
+    // Campos para atualizar UM CLIENTE ESPECÍFICO (dentro do loop n8n)
+    clientId?: string;             // ID do cliente a ser atualizado
+    clientWhatsappStatus?: 'sent' | 'failed' | 'pending' | string; // Status específico do Wpp
+    clientEmailStatus?: 'sent' | 'failed' | 'pending' | string;    // Status específico do Email
+    clientErrorMessage?: string;   // Erro específico do cliente
+  }
+
+  export const updateAutomationInstance = onCall(async (request) => {
+    // Usar 'any' temporariamente para flexibilidade ou validar payload com mais rigor
+    const data = request.data as UpdatePayload;
+    logger.info("Recebida requisição para updateAutomationInstance:", data);
+  
+    // Validações básicas
+    if (!data.companyId || !data.instanceId) {
+      throw new HttpsError("invalid-argument", "companyId e instanceId são obrigatórios.");
+    }
+  
+    try {
+      // Determina se é uma atualização de cliente ou da instância geral
+      if (data.clientId) {
+        // --- ATUALIZAÇÃO DE CLIENTE ESPECÍFICO ---
+        logger.info(`Atualizando status do cliente ${data.clientId} na instância ${data.instanceId}`);
+        const clientDocRef = db.collection("companies").doc(data.companyId)
+                               .collection("clients").doc(data.clientId);
+  
+        const clientUpdateData: { [key: string]: any } = {
+            lastStatusUpdate: FieldValue.serverTimestamp() // Sempre atualiza o timestamp
+        };
+        if (data.clientWhatsappStatus) clientUpdateData.lastWhatsappStatus = data.clientWhatsappStatus;
+        if (data.clientEmailStatus) clientUpdateData.lastEmailStatus = data.clientEmailStatus;
+        if (data.clientErrorMessage) clientUpdateData.clientErrorMessage = data.clientErrorMessage;
+         else clientUpdateData.clientErrorMessage = FieldValue.delete(); // Limpa erro se não enviado
+  
+        await clientDocRef.update(clientUpdateData);
+        logger.info(`Status do cliente ${data.clientId} atualizado.`);
+        return { success: true, message: "Status do cliente atualizado." };
+  
+      } else if (data.instanceStatus) {
+        // --- ATUALIZAÇÃO DA INSTÂNCIA GERAL ---
+        logger.info(`Atualizando status geral da instância ${data.instanceId}`);
+        const instanceDocRef = db.collection("companies").doc(data.companyId)
+                                 .collection("company_automations").doc(data.instanceId);
+  
+        const instanceUpdateData: { [key: string]: any } = {
+            status: data.instanceStatus,
+        };
+        if (data.instanceLastRun) { try { instanceUpdateData.lastRun = Timestamp.fromDate(new Date(data.instanceLastRun)); } catch(e){ logger.warn("lastRun inválido"); } }
+        if (data.instanceResultFileUrl) { instanceUpdateData.resultFileUrl = data.instanceResultFileUrl; }
+        if (data.instanceStoragePath) { instanceUpdateData.storagePath = data.instanceStoragePath; }
+        if (data.instanceResultFileName) { instanceUpdateData.resultFileName = data.instanceResultFileName; }
+        if (data.instanceErrorMessage) { instanceUpdateData.errorMessage = data.instanceErrorMessage; }
+        else if (data.instanceStatus !== 'error') { instanceUpdateData.errorMessage = FieldValue.delete(); }
+  
+        await instanceDocRef.update(instanceUpdateData);
+        logger.info(`Status geral da instância ${data.instanceId} atualizado.`);
+        return { success: true, message: "Status da automação atualizado." };
+  
+      } else {
+         logger.warn("Nenhum dado de atualização válido fornecido (nem cliente, nem instância).", data);
+         throw new HttpsError("invalid-argument", "Dados insuficientes para atualização.");
+      }
+  
+    } catch (error: any) {
+      logger.error(`Erro ao atualizar Firestore (${data.companyId}/${data.instanceId}):`, error);
+      throw new HttpsError("internal", "Falha ao atualizar Firestore.", error.message);
+    }
+  });
