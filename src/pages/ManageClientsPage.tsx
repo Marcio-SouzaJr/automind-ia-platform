@@ -1,48 +1,89 @@
 // src/pages/ManageClientsPage.tsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import Container from "react-bootstrap/Container";
 import Table from "react-bootstrap/Table";
 import Button from "react-bootstrap/Button";
 import Spinner from "react-bootstrap/Spinner";
 import Alert from "react-bootstrap/Alert";
 import Badge from "react-bootstrap/Badge";
-// import Modal from 'react-bootstrap/Modal'; // Para depois (Criar/Editar)
-// import Form from 'react-bootstrap/Form';   // Para depois (Criar/Editar)
+import Modal from "react-bootstrap/Modal";
+import Form from "react-bootstrap/Form";
 import {
   BsPersonPlus,
   BsPencilFill,
   BsTrash,
   BsPower,
   BsCheckCircleFill,
-} from "react-icons/bs"; // Ícones
+} from "react-icons/bs";
 
 import { useAuth } from "../contexts/AuthContext";
-// Funções e Tipos do Firestore
-import { db } from "../config/firebaseConfig"; // Importar db
+import { db } from "../config/firebaseConfig";
 import {
   collection,
   query,
-  where,
-  onSnapshot,
-  doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-  Timestamp,
   orderBy,
-} from "firebase/firestore"; // Funções Firestore
-import { Modal } from "react-bootstrap";
-import Form from "react-bootstrap/Form";
+  onSnapshot,
+  addDoc,
+  serverTimestamp,
+  Timestamp, // Importante ter Timestamp
+} from "firebase/firestore";
 import {
   deleteClientRecipient,
   updateClientEnabledStatus,
-  updateClientRecipient,
+  updateClientRecipient, // Esta função precisa aceitar o campo dueDate
 } from "../services/firestoreService";
 
-// Interface para dados do Cliente Final
+// --- Funções Helper para Formatar Timestamps ---
+const formatTimestampToDate = (timestamp: Timestamp | undefined): string => {
+  if (!timestamp) return "-";
+  try {
+    const dateToFormat = timestamp.toDate();
+    // Use getUTCFullYear(), getUTCMonth(), getUTCDate()
+    const year = dateToFormat.getUTCFullYear();
+    const month = (dateToFormat.getUTCMonth() + 1).toString().padStart(2, '0');
+    const day = dateToFormat.getUTCDate().toString().padStart(2, '0');
+    return `${day}/${month}/${year}`; // Formato DD/MM/YYYY
+  } catch (error) {
+    console.error("Erro ao formatar timestamp para data:", error, timestamp);
+    // Verificar se o objeto é realmente um Timestamp do Firestore
+    if (timestamp && typeof timestamp.toDate === 'function') {
+        return timestamp.toDate().toLocaleDateString('pt-BR');
+    }
+    return "Data inválida";
+  }
+};
+
+const formatTimestampToDateTime = (
+  timestamp: Timestamp | undefined
+): string => {
+  if (!timestamp) return "-";
+  try {
+    return timestamp.toDate().toLocaleString("pt-BR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (error) {
+    console.error(
+      "Erro ao formatar timestamp para data e hora:",
+      error,
+      timestamp
+    );
+    if (timestamp && typeof timestamp.toDate === 'function') {
+        return timestamp.toDate().toLocaleString('pt-BR', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit'
+        });
+    }
+    return "Data/hora inválida";
+  }
+};
+// --- Fim Funções Helper ---
+
 export interface ClientRecipient {
-  id: string; // ID do documento Firestore
+  id: string;
   name: string;
   responsible?: string;
   phone: string;
@@ -51,57 +92,61 @@ export interface ClientRecipient {
   driveFileNameHint?: string;
   lastWhatsappStatus?: string;
   lastEmailStatus?: string;
-  lastStatusUpdate?: Timestamp;
+  lastStatusUpdate?: Timestamp; // Já existe
+  createdAt?: Timestamp;
+  dueDate?: Timestamp; // << ADICIONAR ESTE
+  lastPaymentReminderSentWhatsapp?: Timestamp;
+  lastPaymentReminderSentEmail?: Timestamp;
 }
 
+// Tipos para os dados do formulário
+type ClientFormData = {
+  name: string;
+  responsible?: string;
+  phone: string;
+  email: string;
+  driveFileNameHint?: string;
+  dueDate?: Timestamp; // Será Timestamp ao enviar para o Firestore
+};
+
 const ManageClientsPage: React.FC = () => {
-  const { currentUser, dbUser } = useAuth(); // Precisa de companyId
+  const { currentUser, dbUser } = useAuth();
   const [clients, setClients] = useState<ClientRecipient[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [showDeleteClientModal, setShowDeleteClientModal] = useState(false);
-  const [clientToDelete, setClientToDelete] = useState<ClientRecipient | null>(
-    null
-  );
-  const [isDeletingClient, setIsDeletingClient] = useState(false);
-  const [deleteClientError, setDeleteClientError] = useState<string | null>(
-    null
-  );
-  const [clientName, setClientName] = useState("");
-  const [ClientResponsible, setClientResponsible] = useState("");
-  const [ClientPhone, setClientPhone] = useState("");
-  const [ClientEmail, setClientEmail] = useState("");
-  const [ClientDriveHint, setClientDriveHint] = useState("");
+
+  // Estados do Modal de Adicionar/Editar Cliente
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [editingClient, setEditingClient] = useState<ClientRecipient | null>(null);
   const [isSubmittingClient, setIsSubmittingClient] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  // Campos do Formulário do Modal
+  const [clientName, setClientName] = useState("");
+  const [clientResponsible, setClientResponsible] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientDriveHint, setClientDriveHint] = useState("");
+  const [clientDueDate, setClientDueDate] = useState<string>(""); // Input type="date" usa string YYYY-MM-DD
+
+  // Estados do Modal de Exclusão
+  const [showDeleteClientModal, setShowDeleteClientModal] = useState(false);
+  const [clientToDelete, setClientToDelete] = useState<ClientRecipient | null>(null);
+  const [isDeletingClient, setIsDeletingClient] = useState(false);
+  const [deleteClientError, setDeleteClientError] = useState<string | null>(null);
+
   const [togglingClientId, setTogglingClientId] = useState<string | null>(null);
-  const [showClientModal, setShowClientModal] = useState(false); // Renomeado
-  const [editingClient, setEditingClient] = useState<ClientRecipient | null>(
-    null
-  ); // Para guardar cliente em edição
-  // Efeito para ouvir a coleção de clientes da empresa logada
+
   useEffect(() => {
     setError(null);
-    // Só inicia se tivermos companyId
     if (!dbUser?.companyId) {
       setLoading(false);
-      // Poderia mostrar um erro se companyId for esperado mas não encontrado
       if (currentUser) setError("Não foi possível identificar sua empresa.");
       return;
     }
 
-    console.log(
-      `Listener: Configurando onSnapshot para clients da empresa ${dbUser.companyId}`
-    );
-    setLoading(true); // Inicia loading aqui
-
-    const clientsColRef = collection(
-      db,
-      "companies",
-      dbUser.companyId,
-      "clients"
-    );
-    // Opcional: Ordenar a lista (ex: por nome)
+    setLoading(true);
+    const clientsColRef = collection(db, "companies", dbUser.companyId, "clients");
     const q = query(clientsColRef, orderBy("name", "asc"));
 
     const unsubscribe = onSnapshot(
@@ -109,45 +154,160 @@ const ManageClientsPage: React.FC = () => {
       (querySnapshot) => {
         const clientsData: ClientRecipient[] = [];
         querySnapshot.forEach((doc) => {
-          clientsData.push({ id: doc.id, ...doc.data() } as ClientRecipient);
+          // Importante: Converter os campos de data do Firestore para Timestamp se necessário
+          // Firestore SDK v9+ geralmente já retorna objetos Timestamp
+          const data = doc.data();
+          clientsData.push({
+            id: doc.id,
+            ...data,
+            // Garantir que os Timestamps são de fato Timestamps
+            createdAt: data.createdAt instanceof Timestamp ? data.createdAt : undefined,
+            lastStatusUpdate: data.lastStatusUpdate instanceof Timestamp ? data.lastStatusUpdate : undefined,
+            dueDate: data.dueDate instanceof Timestamp ? data.dueDate : undefined,
+            lastPaymentReminderSentWhatsapp: data.lastPaymentReminderSentWhatsapp instanceof Timestamp ? data.lastPaymentReminderSentWhatsapp : undefined,
+            lastPaymentReminderSentEmail: data.lastPaymentReminderSentEmail instanceof Timestamp ? data.lastPaymentReminderSentEmail : undefined,
+          } as ClientRecipient);
         });
         setClients(clientsData);
-        setError(null); // Limpa erro se receber dados
-        setLoading(false); // Finaliza loading após receber dados
-        console.log("Listener: Lista de clientes atualizada.", clientsData);
+        setError(null);
+        setLoading(false);
       },
       (err) => {
-        // Callback de erro do listener
         console.error("Erro no listener de clientes:", err);
         setError("Erro ao carregar a lista de clientes.");
-        setClients([]); // Limpa lista em caso de erro
-        setLoading(false); // Finaliza loading
+        setClients([]);
+        setLoading(false);
       }
     );
+    return () => unsubscribe();
+  }, [dbUser?.companyId, currentUser]);
 
-    // Limpeza ao desmontar
-    return () => {
-      console.log("Listener: Parando listener de clientes.");
-      unsubscribe();
-    };
-  }, [dbUser?.companyId, currentUser]); // Depende de companyId e currentUser
+  const handleShowClientModal = (clientToEdit: ClientRecipient | null = null) => {
+  setEditingClient(clientToEdit); // Define se estamos editando ou criando um novo
+  setModalError(null); // Limpa erros anteriores do modal
 
-  type NewClientRecipientData = Omit<
-    ClientRecipient,
-    "id" | "lastWhatsappStatus" | "lastEmailStatus" | "lastStatusUpdate"
-  > & { createdAt?: any };
+  if (clientToEdit) {
+    // Modo Edição: Preenche o formulário com dados existentes do cliente
+    setClientName(clientToEdit.name);
+    setClientResponsible(clientToEdit.responsible || ""); // Usa string vazia se for undefined
+    setClientPhone(clientToEdit.phone);
+    setClientEmail(clientToEdit.email);
+    setClientDriveHint(clientToEdit.driveFileNameHint || "");
 
-  type UpdateClientRecipientData = Omit<
-    ClientRecipient,
-    | "id"
-    | "createdAt"
-    | "lastWhatsappStatus"
-    | "lastEmailStatus"
-    | "lastStatusUpdate"
-    | "enabled"
-  >;
+    // CORREÇÃO APLICADA AQUI:
+    // Converte o Timestamp do Firestore para uma string no formato YYYY-MM-DD
+    // que o input type="date" espera, usando a data local do usuário.
+    if (clientToEdit.dueDate) {
+      const dateForInput = clientToEdit.dueDate.toDate(); // Converte para Date (mantém o ponto no tempo)
+    // Use getUTCFullYear(), getUTCMonth(), getUTCDate()
+    const year = dateForInput.getUTCFullYear();
+    const month = (dateForInput.getUTCMonth() + 1).toString().padStart(2, '0'); // Mês é 0-indexed
+    const day = dateForInput.getUTCDate().toString().padStart(2, '0');
+    setClientDueDate(`${year}-${month}-${day}`);
+    } else {
+      setClientDueDate(""); // Se não houver dueDate, limpa o campo
+    }
 
-  // --- Funções CRUD (a implementar com Modais) ---
+  } else {
+    // Modo Adição: Limpa todos os campos do formulário
+    setClientName("");
+    setClientResponsible("");
+    setClientPhone("");
+    setClientEmail("");
+    setClientDriveHint("");
+    setClientDueDate(""); // Limpa o campo de data
+  }
+
+  setShowClientModal(true); // Abre o modal
+};
+
+  const handleCloseClientModal = () => {
+    if (!isSubmittingClient) {
+      setShowClientModal(false);
+      setEditingClient(null);
+    }
+  };
+
+  const handleClientSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setModalError(null);
+
+    if (!clientName.trim() || !clientPhone.trim() || !clientEmail.trim() || !clientDueDate.trim()) {
+      setModalError("Nome, Telefone, Email e Data de Vencimento são obrigatórios.");
+      return;
+    }
+    if (!dbUser?.companyId) {
+      setModalError("ID da empresa não encontrado.");
+      return;
+    }
+
+    setIsSubmittingClient(true);
+    try {
+      let dueDateAsTimestamp: Timestamp | undefined = undefined;
+      if (clientDueDate) {
+        // Adicionar T00:00:00 para evitar problemas de fuso local ao converter para Date, e usar UTC (Z)
+        const dateObj = new Date(clientDueDate + "T00:00:00.000Z");
+        if (!isNaN(dateObj.getTime())) {
+          dueDateAsTimestamp = Timestamp.fromDate(dateObj);
+        } else {
+          setModalError("Data de vencimento inválida.");
+          setIsSubmittingClient(false);
+          return;
+        }
+      }
+
+      const clientDataPayload: ClientFormData = {
+        name: clientName.trim(),
+        responsible: clientResponsible.trim() || undefined,
+        phone: clientPhone.trim(),
+        email: clientEmail.trim(),
+        driveFileNameHint: clientDriveHint.trim() || undefined,
+        dueDate: dueDateAsTimestamp,
+      };
+
+      if (editingClient) {
+        const updatePayload = {
+          ...clientDataPayload,
+          lastStatusUpdate: serverTimestamp(),
+        };
+        await updateClientRecipient(
+          dbUser.companyId,
+          editingClient.id,
+          updatePayload // updateClientRecipient deve aceitar Partial<ClientRecipient> ou este formato
+        );
+      } else {
+        const newClientPayload = {
+          ...clientDataPayload,
+          enabled: true,
+          createdAt: serverTimestamp(),
+          lastStatusUpdate: serverTimestamp(),
+          // lastPaymentReminderSentWhatsapp e Email são definidos pelo n8n, não aqui
+        };
+        const clientsColRef = collection(db, "companies", dbUser.companyId, "clients");
+        await addDoc(clientsColRef, newClientPayload);
+      }
+
+      handleCloseClientModal();
+    } catch (err: any) {
+      console.error(`Erro ao ${editingClient ? "atualizar" : "adicionar"} cliente:`, err);
+      setModalError(err.message || `Falha ao ${editingClient ? "atualizar" : "adicionar"} cliente.`);
+    } finally {
+      setIsSubmittingClient(false);
+    }
+  };
+
+  const handleToggleClientStatus = async (client: ClientRecipient) => {
+    if (!dbUser?.companyId) return;
+    const newStatus = !client.enabled;
+    setTogglingClientId(client.id);
+    try {
+      await updateClientEnabledStatus(dbUser.companyId, client.id, newStatus);
+    } catch (error: any) {
+      alert(`Erro ao alterar status: ${error.message}`);
+    } finally {
+      setTogglingClientId(null);
+    }
+  };
 
   const handleShowDeleteClientModal = (client: ClientRecipient) => {
     setClientToDelete(client);
@@ -164,203 +324,56 @@ const ManageClientsPage: React.FC = () => {
 
   const handleConfirmDeleteClient = async () => {
     if (!clientToDelete || !dbUser?.companyId) return;
-
     setIsDeletingClient(true);
     setDeleteClientError(null);
     try {
-      console.log(
-        `Excluindo cliente ${clientToDelete.id} da empresa ${dbUser.companyId}...`
-      );
-      await deleteClientRecipient(dbUser.companyId, clientToDelete.id); // Chama o serviço
-
-      console.log("Cliente excluído com sucesso!");
+      await deleteClientRecipient(dbUser.companyId, clientToDelete.id);
       handleCloseDeleteClientModal();
-      // A lista será atualizada automaticamente pelo onSnapshot
     } catch (err: any) {
-      console.error("Erro ao excluir cliente:", err);
       setDeleteClientError(err.message || "Falha ao excluir cliente.");
     } finally {
       setIsDeletingClient(false);
-    }
-  };
-  // ------------------------------------------------
-
-  const handleToggleClientStatus = async (client: ClientRecipient) => {
-    if (!dbUser?.companyId) {
-      alert("Erro: ID da empresa não encontrado.");
-      return;
-    }
-
-    const newStatus = !client.enabled;
-    const actionText = newStatus ? "habilitar" : "desabilitar";
-
-    // Confirmação opcional
-    // if (!confirm(`Tem certeza que deseja ${actionText} o cliente "${client.name}"?`)) {
-    //     return;
-    // }
-
-    setTogglingClientId(client.id); // Indica que este cliente está sendo alterado
-    try {
-      console.log(
-        `Trocando status 'enabled' para ${newStatus} no cliente ${client.id}`
-      );
-      await updateClientEnabledStatus(dbUser.companyId, client.id, newStatus);
-      // A lista será atualizada automaticamente pelo onSnapshot.
-      // Se não fosse, chamaríamos fetchClients() aqui.
-      console.log(`Status do cliente ${client.id} alterado com sucesso.`);
-    } catch (error: any) {
-      console.error(`Erro ao ${actionText} cliente:`, error);
-      alert(
-        `Erro ao ${actionText} cliente: ${error.message || "Erro desconhecido"}`
-      );
-    } finally {
-      setTogglingClientId(null); // Limpa o estado de loading específico
-    }
-  };
-
-  const handleShowClientModal = (
-    clientToEdit: ClientRecipient | null = null
-  ) => {
-    setEditingClient(clientToEdit); // Define se estamos editando ou criando
-    setModalError(null);
-
-    if (clientToEdit) {
-      // Modo Edição: Preenche o formulário com dados existentes
-      setClientName(clientToEdit.name);
-      setClientResponsible(clientToEdit.responsible || "");
-      setClientPhone(clientToEdit.phone);
-      setClientEmail(clientToEdit.email);
-      setClientDriveHint(clientToEdit.driveFileNameHint || "");
-    } else {
-      // Modo Adição: Limpa o formulário
-      setClientName("");
-      setClientResponsible("");
-      setClientPhone("");
-      setClientEmail("");
-      setClientDriveHint("");
-    }
-    setShowClientModal(true); // Abre o modal
-  };
-
-  const handleCloseClientModal = () => {
-    if (!isSubmittingClient) {
-      setShowClientModal(false);
-      setEditingClient(null); // Limpa o cliente em edição ao fechar
-    }
-  };
-
-  const handleClientSubmit = async (
-    event: React.FormEvent<HTMLFormElement>
-  ) => {
-    event.preventDefault();
-    setModalError(null);
-
-    if (!clientName.trim() || !ClientPhone.trim() || !ClientEmail.trim()) {
-      setModalError("Nome, Telefone e Email são obrigatórios.");
-      return;
-    }
-    if (!dbUser?.companyId) {
-      setModalError("ID da empresa não encontrado.");
-      return;
-    }
-
-    setIsSubmittingClient(true);
-    try {
-      const clientFormData: UpdateClientRecipientData = {
-        // Usa tipo para dados editáveis
-        name: clientName.trim(),
-        responsible: ClientResponsible.trim() || undefined,
-        phone: ClientPhone.trim(),
-        email: ClientEmail.trim(),
-        driveFileNameHint: ClientDriveHint.trim() || undefined,
-      };
-
-      if (editingClient) {
-        // --- MODO EDIÇÃO ---
-        console.log(`Atualizando cliente ${editingClient.id}:`, clientFormData);
-        // Chamar função updateClientRecipient (a ser criada)
-        // await updateClientRecipient(dbUser.companyId, editingClient.id, clientFormData);
-        await updateClientRecipient(
-          dbUser.companyId,
-          editingClient.id,
-          clientFormData
-        );
-      } else {
-        // --- MODO CRIAÇÃO ---
-        const newClientData: NewClientRecipientData = {
-          ...clientFormData, // Dados do form
-          enabled: true,
-          createdAt: serverTimestamp(),
-        };
-        console.log("Adicionando novo cliente:", newClientData);
-        const clientsColRef = collection(
-          db,
-          "companies",
-          dbUser.companyId,
-          "clients"
-        );
-        await addDoc(clientsColRef, newClientData);
-        console.log("Novo cliente adicionado com sucesso!");
-      }
-
-      handleCloseClientModal(); // Fecha modal
-      // onSnapshot já atualiza a lista
-    } catch (err: any) {
-      console.error(
-        `Erro ao ${editingClient ? "atualizar" : "adicionar"} cliente:`,
-        err
-      );
-      setModalError(
-        err.message ||
-          `Falha ao ${editingClient ? "atualizar" : "adicionar"} cliente.`
-      );
-    } finally {
-      setIsSubmittingClient(false);
     }
   };
 
   return (
     <Container fluid>
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h1>Gerenciar Clientes para Envio</h1>
+        <h1>Gerenciar Clientes</h1>
         <Button variant="primary" onClick={() => handleShowClientModal()}>
           <BsPersonPlus /> Adicionar Cliente
         </Button>
       </div>
 
       {loading && (
-        <div className="text-center">
+        <div className="text-center my-5">
           <Spinner animation="border" variant="primary" />
+          <p>Carregando clientes...</p>
         </div>
       )}
       {error && <Alert variant="danger">{error}</Alert>}
 
       {!loading && !error && (
-        <Table
-          striped
-          bordered
-          hover
-          responsive
-          variant="dark"
-          size="sm"
-          className="align-middle"
-        >
+        <Table striped bordered hover responsive variant="dark" size="sm" className="align-middle">
           <thead>
             <tr>
               <th>Nome</th>
               <th>Responsável</th>
               <th>Telefone</th>
               <th>Email</th>
+              <th>Vencimento</th> {/* NOVA COLUNA */}
               <th className="text-center">Habilitado</th>
-              <th>Status Wpp</th>
-              <th>Status Email</th>
+              <th>Envio Wpp</th> {/* Renomeado */}
+              <th>Envio Email</th> {/* Renomeado */}
+              <th>Lembrete Wpp</th> {/* NOVA COLUNA */}
+              <th>Lembrete Email</th> {/* NOVA COLUNA */}
               <th>Ações</th>
             </tr>
           </thead>
           <tbody>
             {clients.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center text-muted">
+                <td colSpan={11} className="text-center text-muted py-3"> {/* Ajustado colSpan */}
                   Nenhum cliente cadastrado.
                 </td>
               </tr>
@@ -371,28 +384,17 @@ const ManageClientsPage: React.FC = () => {
                   <td>{client.responsible || "-"}</td>
                   <td>{client.phone}</td>
                   <td>{client.email}</td>
+                  <td>{formatTimestampToDate(client.dueDate)}</td> {/* NOVO DADO */}
                   <td className="text-center">
                     <Button
                       variant={client.enabled ? "success" : "secondary"}
                       size="sm"
                       onClick={() => handleToggleClientStatus(client)}
-                      // 👇 Desabilita se ESTE cliente estiver sendo alterado 👇
                       disabled={togglingClientId === client.id}
-                      title={
-                        client.enabled
-                          ? "Clique para Desabilitar"
-                          : "Clique para Habilitar"
-                      }
+                      title={client.enabled ? "Clique para Desabilitar" : "Clique para Habilitar"}
                     >
-                      {/* Mostra spinner se ESTE cliente estiver sendo alterado */}
                       {togglingClientId === client.id ? (
-                        <Spinner
-                          as="span"
-                          animation="border"
-                          size="sm"
-                          role="status"
-                          aria-hidden="true"
-                        />
+                        <Spinner as="span" animation="border" size="sm" />
                       ) : client.enabled ? (
                         <BsCheckCircleFill />
                       ) : (
@@ -400,32 +402,32 @@ const ManageClientsPage: React.FC = () => {
                       )}
                     </Button>
                   </td>
-                  <td>
-                    <Badge bg="secondary">
-                      {client.lastWhatsappStatus || "-"}
+                  <td><Badge bg="info" text="dark">{client.lastWhatsappStatus || "-"}</Badge></td>
+                  <td><Badge bg="info" text="dark">{client.lastEmailStatus || "-"}</Badge></td>
+                  <td> {/* NOVO DADO */}
+                    <Badge bg={client.lastPaymentReminderSentWhatsapp ? "success" : "secondary"}>
+                      {formatTimestampToDateTime(client.lastPaymentReminderSentWhatsapp)}
                     </Badge>
                   </td>
-                  <td>
-                    <Badge bg="secondary">
-                      {client.lastEmailStatus || "-"}
+                  <td> {/* NOVO DADO */}
+                    <Badge bg={client.lastPaymentReminderSentEmail ? "success" : "secondary"}>
+                      {formatTimestampToDateTime(client.lastPaymentReminderSentEmail)}
                     </Badge>
                   </td>
                   <td>
                     <Button
                       variant="outline-info"
                       size="sm"
-                      className="me-2"
+                      className="me-2 mb-1 mb-md-0" // Ajuste para telas menores
                       onClick={() => handleShowClientModal(client)}
                     >
-                      <BsPencilFill /> Editar
+                      <BsPencilFill />
                     </Button>
                     <Button
                       variant="outline-danger"
                       size="sm"
                       onClick={() => handleShowDeleteClientModal(client)}
-                      disabled={
-                        isDeletingClient && clientToDelete?.id === client.id
-                      } // Desabilita só o botão do item sendo excluído
+                      disabled={isDeletingClient && clientToDelete?.id === client.id}
                     >
                       {isDeletingClient && clientToDelete?.id === client.id ? (
                         <Spinner size="sm" />
@@ -441,6 +443,7 @@ const ManageClientsPage: React.FC = () => {
         </Table>
       )}
 
+      {/* Modal de Adicionar/Editar Cliente */}
       <Modal
         show={showClientModal}
         onHide={handleCloseClientModal}
@@ -449,140 +452,61 @@ const ManageClientsPage: React.FC = () => {
         centered
       >
         <Modal.Header closeButton={!isSubmittingClient}>
-          <Modal.Title>
-            {editingClient ? "Editar Cliente" : "Adicionar Novo Cliente"}
-          </Modal.Title>
+          <Modal.Title>{editingClient ? "Editar Cliente" : "Adicionar Novo Cliente"}</Modal.Title>
         </Modal.Header>
-        <Form onSubmit={handleClientSubmit} id="addClientForm">
+        <Form onSubmit={handleClientSubmit} id="clientForm">
           <Modal.Body>
             {modalError && <Alert variant="danger">{modalError}</Alert>}
-
-            <Form.Group className="mb-3" controlId="newClientName">
+            <Form.Group className="mb-3" controlId="clientName">
               <Form.Label>Nome do Cliente *</Form.Label>
-              <Form.Control
-                type="text"
-                placeholder="Nome completo do cliente"
-                required
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                disabled={isSubmittingClient}
-              />
+              <Form.Control type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} required disabled={isSubmittingClient} />
             </Form.Group>
-
-            <Form.Group className="mb-3" controlId="newClientResponsible">
+            <Form.Group className="mb-3" controlId="clientResponsible">
               <Form.Label>Contato Responsável (Opcional)</Form.Label>
-              <Form.Control
-                type="text"
-                placeholder="Nome do contato principal"
-                value={ClientResponsible}
-                onChange={(e) => setClientResponsible(e.target.value)}
-                disabled={isSubmittingClient}
-              />
+              <Form.Control type="text" value={clientResponsible} onChange={(e) => setClientResponsible(e.target.value)} disabled={isSubmittingClient} />
             </Form.Group>
-
-            <Form.Group className="mb-3" controlId="newClientPhone">
+            <Form.Group className="mb-3" controlId="clientPhone">
               <Form.Label>Telefone (com DDD e país) *</Form.Label>
-              <Form.Control
-                type="tel"
-                placeholder="Ex: 5511999998888"
-                required
-                value={ClientPhone}
-                onChange={(e) => setClientPhone(e.target.value)}
-                disabled={isSubmittingClient}
-              />
+              <Form.Control type="tel" placeholder="Ex: 5511999998888" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} required disabled={isSubmittingClient} />
             </Form.Group>
-
-            <Form.Group className="mb-3" controlId="newClientEmail">
+            <Form.Group className="mb-3" controlId="clientEmail">
               <Form.Label>Email *</Form.Label>
-              <Form.Control
-                type="email"
-                placeholder="email@cliente.com"
-                required
-                value={ClientEmail}
-                onChange={(e) => setClientEmail(e.target.value)}
-                disabled={isSubmittingClient}
-              />
+              <Form.Control type="email" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} required disabled={isSubmittingClient} />
             </Form.Group>
-
-            <Form.Group className="mb-3" controlId="newClientDriveHint">
+            <Form.Group className="mb-3" controlId="clientDriveHint">
               <Form.Label>Nome do Arquivo no Drive (Opcional)</Form.Label>
-              <Form.Control
-                type="text"
-                placeholder="Ex: Cliente Exemplo Alfa - Fatura Maio"
-                value={ClientDriveHint}
-                onChange={(e) => setClientDriveHint(e.target.value)}
-                disabled={isSubmittingClient}
-              />
+              <Form.Control type="text" value={clientDriveHint} onChange={(e) => setClientDriveHint(e.target.value)} disabled={isSubmittingClient} />
+            </Form.Group>
+            {/* NOVO CAMPO - DATA DE VENCIMENTO */}
+            <Form.Group className="mb-3" controlId="clientDueDate">
+              <Form.Label>Data de Vencimento *</Form.Label>
+              <Form.Control type="date" value={clientDueDate} onChange={(e) => setClientDueDate(e.target.value)} required disabled={isSubmittingClient} />
               <Form.Text className="text-muted">
-                Como o arquivo deste cliente é nomeado no Google Drive.
+                Data de vencimento da fatura/serviço para este cliente.
               </Form.Text>
             </Form.Group>
           </Modal.Body>
           <Modal.Footer>
-            <Button
-              variant="secondary"
-              onClick={handleCloseClientModal}
-              disabled={isSubmittingClient}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              form="addClientForm"
-              disabled={isSubmittingClient}
-            >
-              {isSubmittingClient ? (
-                <>
-                  <Spinner as="span" size="sm" /> Adicionando...
-                </>
-              ) : editingClient ? (
-                "Editar Cliente"
-              ) : (
-                "Adicionar Novo Cliente"
-              )}
+            <Button variant="secondary" onClick={handleCloseClientModal} disabled={isSubmittingClient}>Cancelar</Button>
+            <Button variant="primary" type="submit" form="clientForm" disabled={isSubmittingClient}>
+              {isSubmittingClient ? <><Spinner as="span" size="sm" /> Salvando...</> : (editingClient ? "Salvar Alterações" : "Adicionar Cliente")}
             </Button>
           </Modal.Footer>
         </Form>
       </Modal>
 
-      <Modal
-        show={showDeleteClientModal}
-        onHide={handleCloseDeleteClientModal}
-        centered
-      >
-        <Modal.Header closeButton={!isDeletingClient}>
-          <Modal.Title>Confirmar Exclusão de Cliente</Modal.Title>
-        </Modal.Header>
+      {/* Modal de Confirmação de Exclusão */}
+      <Modal show={showDeleteClientModal} onHide={handleCloseDeleteClientModal} centered>
+        <Modal.Header closeButton={!isDeletingClient}><Modal.Title>Confirmar Exclusão</Modal.Title></Modal.Header>
         <Modal.Body>
-          {deleteClientError && (
-            <Alert variant="danger">{deleteClientError}</Alert>
-          )}
-          Tem certeza que deseja excluir o cliente{" "}
-          <strong>{clientToDelete?.name || "Selecionado"}</strong>?
+          {deleteClientError && <Alert variant="danger">{deleteClientError}</Alert>}
+          Tem certeza que deseja excluir o cliente <strong>{clientToDelete?.name || "Selecionado"}</strong>?
           <p className="text-danger mt-2">Esta ação não pode ser desfeita.</p>
         </Modal.Body>
         <Modal.Footer>
-          <Button
-            variant="secondary"
-            onClick={handleCloseDeleteClientModal}
-            disabled={isDeletingClient}
-          >
-            Cancelar
-          </Button>
-          <Button
-            variant="danger"
-            onClick={handleConfirmDeleteClient}
-            disabled={isDeletingClient}
-          >
-            {isDeletingClient ? (
-              <>
-                {" "}
-                <Spinner as="span" size="sm" /> Excluindo...{" "}
-              </>
-            ) : (
-              "Confirmar Exclusão"
-            )}
+          <Button variant="secondary" onClick={handleCloseDeleteClientModal} disabled={isDeletingClient}>Cancelar</Button>
+          <Button variant="danger" onClick={handleConfirmDeleteClient} disabled={isDeletingClient}>
+            {isDeletingClient ? <><Spinner as="span" size="sm" /> Excluindo...</> : "Confirmar Exclusão"}
           </Button>
         </Modal.Footer>
       </Modal>

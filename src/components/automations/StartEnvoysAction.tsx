@@ -1,15 +1,15 @@
 // src/components/automations/StartEnvoysAction.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Button from 'react-bootstrap/Button';
 import Spinner from 'react-bootstrap/Spinner';
 import Alert from 'react-bootstrap/Alert';
 
 import { useAuth } from '../../contexts/AuthContext'; // Para pegar currentUser se necessário
 import { db } from '../../config/firebaseConfig';    // Para buscar clientes
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 // Importar função e interfaces do firestoreService
-import { getCompanyAutomationInstance, CompanyAutomation } from '../../services/firestoreService';
+import {  CompanyAutomation } from '../../services/firestoreService';
 
 // Interface para dados do Cliente Final que serão enviados ao n8n
 interface ClientForN8n {
@@ -30,7 +30,7 @@ interface StartEnvoysActionProps {
 }
 
 // URL do Webhook N8N para esta automação específica
-const ENVOYS_N8N_WEBHOOK_URL = "https://automind-ia.app.n8n.cloud/webhook-test/c50a4f42-258d-40d4-8fab-4c14f3bcc993"; // SUBSTITUA!
+const ENVOYS_N8N_WEBHOOK_URL = "https://automind-ia.app.n8n.cloud/webhook/c50a4f42-258d-40d4-8fab-4c14f3bcc993"; // SUBSTITUA!
 
 const StartEnvoysAction: React.FC<StartEnvoysActionProps> = ({ instance, companyId, onProcessingStart, onProcessingComplete }) => {
     const { currentUser } = useAuth(); // Para o triggeringUserId

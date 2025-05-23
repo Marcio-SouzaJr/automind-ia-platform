@@ -7,7 +7,6 @@ import Spinner from 'react-bootstrap/Spinner';
 import Alert from 'react-bootstrap/Alert';
 import Modal from 'react-bootstrap/Modal'; // Importar Modal
 import Form from 'react-bootstrap/Form';   // Importar Form
-import { Link } from 'react-router-dom'; // 1. Importar Link
 
 // Importar funções do serviço e a interface CompanyData
 // ✨ Incluir addCompany (será criada no próximo passo)

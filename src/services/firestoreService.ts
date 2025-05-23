@@ -17,7 +17,7 @@ import {
     updateDoc,
     deleteDoc,
     FieldValue,
-    deleteField
+    
 } from 'firebase/firestore';
 import { ClientRecipient } from '../pages/ManageClientsPage';
 
@@ -545,31 +545,55 @@ export const updateClientEnabledStatus = async (
 };
 
 export type UpdateClientRecipientData = Omit<ClientRecipient, 'id' | 'createdAt' | 'lastWhatsappStatus' | 'lastEmailStatus' | 'lastStatusUpdate' | 'enabled'>;
+export type ClientUpdatePayload = Partial<Omit<ClientRecipient, 'id' | 'createdAt' | 'enabled' | 'lastWhatsappStatus' | 'lastEmailStatus' | 'lastPaymentReminderSentWhatsapp' | 'lastPaymentReminderSentEmail'>> & {
+    lastStatusUpdate?: FieldValue;
+};
+export type ClientEditableFields = Partial<Omit<ClientRecipient,
+    'id' |
+    'createdAt' |
+    'enabled' | // Assumindo que enabled é trocado por updateClientEnabledStatus
+    'lastWhatsappStatus' | // Gerenciado por n8n
+    'lastEmailStatus' |    // Gerenciado por n8n
+    'lastPaymentReminderSentWhatsapp' | // Gerenciado por n8n
+    'lastPaymentReminderSentEmail' |  // Gerenciado por n8n
+    'lastStatusUpdate' // Será adicionado pela função de update
+>>;
+
+
 export const updateClientRecipient = async (
     companyId: string,
     clientId: string,
-    updateData: UpdateClientRecipientData // Apenas os campos que podem ser editados
+    // A função receberá os dados do formulário (sem lastStatusUpdate)
+    formData: ClientEditableFields
 ): Promise<void> => {
     if (!companyId || !clientId) throw new Error("IDs são obrigatórios para atualizar cliente.");
-    if (!updateData || Object.keys(updateData).length === 0) {
-        console.warn("Nenhum dado fornecido para atualização do cliente.");
-        return;
+
+    // Verifica se formData tem pelo menos uma chave, além de possivelmente dueDate sendo undefined
+    // (se dueDate fosse opcional e o usuário limpasse o campo)
+    const hasDataToUpdate = Object.keys(formData).some(key => formData[key as keyof ClientEditableFields] !== undefined);
+
+    if (!hasDataToUpdate) {
+        console.warn("Nenhum dado efetivo fornecido para atualização do cliente (campos podem estar undefined).");
+        // Se todos os campos em formData forem undefined (o que não deve acontecer com seu form atual)
+        // podemos optar por não fazer a chamada de update.
+        // Contudo, se você enviar um objeto vazio intencionalmente para apenas atualizar lastStatusUpdate,
+        // a lógica abaixo ainda funcionaria.
     }
 
-    console.log(`Firestore Client: Atualizando cliente ${clientId} da empresa ${companyId}...`, updateData);
+
+    console.log(`Firestore Client: Atualizando cliente ${clientId} da empresa ${companyId}...`);
+
     try {
         const clientDocRef = doc(db, 'companies', companyId, 'clients', clientId);
 
-        // updateDoc atualiza apenas os campos fornecidos em updateData
-        // Não precisamos incluir 'enabled' ou 'createdAt' aqui se não queremos que sejam editados por este form
-        await updateDoc(clientDocRef, {
-            name: updateData.name,
-            responsible: updateData.responsible || null, // Salva null se vazio
-            phone: updateData.phone,
-            email: updateData.email,
-            driveFileNameHint: updateData.driveFileNameHint || null // Salva null se vazio
-            // Poderia adicionar um campo 'updatedAt': serverTimestamp() aqui
-        });
+        // Monta o payload final DENTRO da função de serviço
+        const payloadToFirestore: ClientEditableFields & { lastStatusUpdate: any } = {
+            ...formData, // Dados do formulário (name, responsible, phone, email, driveFileNameHint, dueDate)
+            lastStatusUpdate: serverTimestamp() // Adiciona/atualiza o timestamp da modificação
+        };
+
+        console.log('Payload para updateDoc:', payloadToFirestore);
+        await updateDoc(clientDocRef, payloadToFirestore);
 
         console.log(`Firestore Client: Cliente ${clientId} atualizado com sucesso.`);
 
@@ -578,6 +602,10 @@ export const updateClientRecipient = async (
         throw new Error("Falha ao atualizar os dados do cliente.");
     }
 };
+
+
+
+
 
 export const deleteClientRecipient = async (
     companyId: string,

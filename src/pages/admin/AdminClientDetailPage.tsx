@@ -13,7 +13,6 @@ import Modal from 'react-bootstrap/Modal';
 import Form from 'react-bootstrap/Form';
 import { BsPencilFill, BsTrash, BsPower, BsCheckCircleFill } from 'react-icons/bs';
 
-import { useAuth } from '../../contexts/AuthContext';
 import {
     getCompanyDetails, CompanyData,
     getCompanyAutomations, CompanyAutomation,
@@ -179,7 +178,6 @@ const AdminClientDetailPage: React.FC = () => {
     const handleToggleAutomationStatus = async (instance: CompanyAutomation) => {
         if (!companyId) return;
         const newStatus = !instance.enabled;
-        const actionText = newStatus ? 'habilitar' : 'desabilitar';
         setIsTogglingStatus(instance.id);
         try {
             await updateCompanyAutomationStatus(companyId, instance.id, newStatus);

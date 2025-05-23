@@ -1,6 +1,6 @@
 // src/pages/AutomationDetailPage.tsx
 
-import React, { useState, useEffect, useRef } from "react";
+import  { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Container from "react-bootstrap/Container";
 import Button from "react-bootstrap/Button";
@@ -8,8 +8,6 @@ import Spinner from "react-bootstrap/Spinner";
 import Alert from "react-bootstrap/Alert";
 import Card from "react-bootstrap/Card";
 import Badge from "react-bootstrap/Badge";
-import Form from "react-bootstrap/Form";
-import ProgressBar from "react-bootstrap/ProgressBar";
 
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -22,25 +20,30 @@ import { onSnapshot, doc } from "firebase/firestore";
 import { storage } from "../config/firebaseConfig"; // Importar storage para download
 import {
   ref,
-  uploadBytesResumable,
+  
   getDownloadURL,
-  UploadTaskSnapshot,
+  
 } from "firebase/storage";
 
 // Importar Componentes de Ação Específicos
 import PdfUploadAction from "../components/automations/PdfUploadAction";
 import StartEnvoysAction from "../components/automations/StartEnvoysAction";
+import PaymentReminderSettings from '../components/automations/PaymentReminderSettings'; // SEU NOVO COMPONENTE
+
+
 
 // IDs dos Templates (Substitua pelos IDs reais do seu Firestore)
 const PDF_PROCESSOR_TEMPLATE_ID = "v192SC7bpgR4nNooJMKc"; // Ex: ID do "Relatorio Piramide > XLSX"
 const ENVOYS_TEMPLATE_ID = "WOIjGQMkLSB3NTgas2OF"; // Ex: ID do "Envios Automáticos"
+const PAYMENT_REMINDER_TEMPLATE_ID = "MGGct7RZTCgk2eWwDpb4"; // SEU NOVO ID
+
 
 const AutomationDetailPage = () => {
   const { automationInstanceId } = useParams<{
     automationInstanceId: string;
   }>();
   const navigate = useNavigate();
-  const { currentUser, dbUser } = useAuth();
+  const {  dbUser } = useAuth();
 
   const [details, setDetails] = useState<CombinedAutomationDetails | null>(
     null
@@ -236,15 +239,22 @@ const AutomationDetailPage = () => {
         return (
             <StartEnvoysAction
                 instance={instanceData}
-                companyId={dbUser.companyId} // Passa companyId como prop
+                companyId={dbUser?.companyId || ""} // Passa companyId como prop, garantindo que não seja null
                 onProcessingStart={handleProcessingStart}
                 onProcessingComplete={handleProcessingComplete}
             />
         );
+         case PAYMENT_REMINDER_TEMPLATE_ID: // Usando a constante definida
+        return (
+            <PaymentReminderSettings
+                instanceId={instanceData.id}
+            />
+        );
       default:
         return (
-          <Alert variant="info">
-            Nenhuma ação interativa configurada para esta automação.
+          <Alert variant="info" className="mt-3">
+            Nenhuma ação interativa específica configurada para esta automação.
+            As configurações e o status são exibidos nesta página.
           </Alert>
         );
     }

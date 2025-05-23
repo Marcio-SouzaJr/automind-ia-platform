@@ -19,17 +19,12 @@ const AdminManageAutomationsPage: React.FC = () => {
     const [templates, setTemplates] = useState<AutomationTemplate[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [showCreateModal, setShowCreateModal] = useState(false);
     const [showTemplateModal, setShowTemplateModal] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | null>(null);
     const [templateName, setTemplateName] = useState('');
     const [templateDescription, setTemplateDescription] = useState('');
     const [templateIcon, setTemplateIcon] = useState('');
     const [templateSchema, setTemplateSchema] = useState(''); // Schema como string JSON
-    const [newTemplateName, setNewTemplateName] = useState('');
-    const [newTemplateDescription, setNewTemplateDescription] = useState('');
-    const [newTemplateIcon, setNewTemplateIcon] = useState(''); // Opcional
-    const [newTemplateSchema, setNewTemplateSchema] = useState(''); // Schema como string JSON
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [modalError, setModalError] = useState<string | null>(null);
 
